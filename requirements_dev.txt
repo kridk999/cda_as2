@@ -1,0 +1,9 @@
+# linting
+ruff==0.11.6
+mypy==1.19.1
+
+# pre-commit
+pre-commit==4.1.0
+
+# commands
+invoke==2.2.0
