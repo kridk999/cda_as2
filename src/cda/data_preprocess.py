@@ -1,10 +1,7 @@
 from pathlib import Path
 import pandas as pd
 
-
-# -----------------------------
-# File-specific processors
-# -----------------------------
+# Processors for each signal type 
 def process_bvp(path):
     df = pd.read_csv(path)
     return {"BVP_mean": df.iloc[:, 1].mean()}
@@ -21,7 +18,6 @@ def process_temp(path):
     df = pd.read_csv(path)
     return {"TEMP_mean": df.iloc[:, 1].mean()}
 
-
 PROCESSORS = {
     "bvp": process_bvp,
     "eda": process_eda,
@@ -30,9 +26,7 @@ PROCESSORS = {
 }
 
 
-# -----------------------------
-# Process one phase folder
-# -----------------------------
+# Collecting data from each D1 for each person for the 4 rounds for phase 1 and 2
 def process_phase_folder(phase_path):
     parts = phase_path.parts
 
@@ -54,9 +48,8 @@ def process_phase_folder(phase_path):
     return row
 
 
-# -----------------------------
-# Build dataframe for a phase
-# -----------------------------
+
+# Build dataframe for the phase 1 and phase 2 datasets
 def build_dataframe(base_path, phase_name):
     rows = []
 
@@ -65,33 +58,28 @@ def build_dataframe(base_path, phase_name):
 
     df = pd.DataFrame(rows)
 
-    # Optional: sort rounds numerically
-    df["round_num"] = df["round"].str.extract(r"(\d+)").astype(int)
-    df = df.sort_values(["D1", "ID", "round_num"])
+    # Sort rounds numerically
+    df["round"] = df["round"].str.extract(r"(\d+)").astype(int)
+    df = df.sort_values(["D1", "ID", "round"])
 
     return df
 
 
-# -----------------------------
-# Compute stats from phase1
-# -----------------------------
+# Compute mean and standard deviation from phase 1 dataset for each D1 and person across the 4 rounds
 def compute_phase1_stats(df):
     feature_cols = ["BVP_mean", "EDA_mean", "HR_mean", "TEMP_mean"]
 
     stats = (
         df.groupby(["D1", "ID"])[feature_cols]
-        .agg(["mean", "std"])
+        .agg(["mean", lambda x: x.std(ddof=0)])
     )
 
-    # Flatten column names
-    stats.columns = [f"{col}_{stat}" for col, stat in stats.columns]
+    stats.columns = [f"{col}_{stat}" for col in feature_cols for stat in ["mean", "std"]]
 
     return stats.reset_index()
 
 
-# -----------------------------
-# Apply standardization
-# -----------------------------
+# Apply standardization for each person and D1 using the computed mean and std from phase 1
 def apply_standardization(df, stats):
     feature_cols = ["BVP", "EDA", "HR", "TEMP"]
 
@@ -106,30 +94,28 @@ def apply_standardization(df, stats):
     return df[[
         "D1",
         "ID",
-        "round_num",
+        "round",
         "BVP_standardized",
         "EDA_standardized",
         "HR_standardized",
         "TEMP_standardized"
     ]]
 
-# -----------------------------
 # Main pipeline
-# -----------------------------
 def main():
-    base_path = Path("assets/data/dataset")
+    base_path = Path("assets/data/dataset") # dataset folder path
 
-    # ---- Phase 1 ----
+    # Phase 1
     df_phase1 = build_dataframe(base_path, "phase1")
     stats = compute_phase1_stats(df_phase1)
 
     df_phase1 = apply_standardization(df_phase1, stats)
 
-    # ---- Phase 2 ----
+    # Phase 2 
     df_phase2 = build_dataframe(base_path, "phase2")
     df_phase2 = apply_standardization(df_phase2, stats)
 
-    # ---- Save results ----
+    # Save results
     df_phase1.to_csv("assets/data/phase1_processed.csv", index=False)
     df_phase2.to_csv("assets/data/phase2_processed.csv", index=False)
 
