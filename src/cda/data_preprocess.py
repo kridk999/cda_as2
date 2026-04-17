@@ -93,22 +93,25 @@ def compute_phase1_stats(df):
 # Apply standardization
 # -----------------------------
 def apply_standardization(df, stats):
-    feature_cols = ["BVP_mean", "EDA_mean", "HR_mean", "TEMP_mean"]
+    feature_cols = ["BVP", "EDA", "HR", "TEMP"]
 
-    # Merge stats into dataframe
     df = df.merge(stats, on=["D1", "ID"], how="left")
 
     for col in feature_cols:
-        mean_col = f"{col}_mean"
-        std_col = f"{col}_std"
-
-        df[col + "_z"] = (
-            (df[col] - df[mean_col]) /
-            df[std_col].replace(0, 1)
+        df[f"{col}_standardized"] = (
+            (df[f"{col}_mean"] - df[f"{col}_mean_mean"]) /
+            df[f"{col}_mean_std"].replace(0, 1)
         )
 
-    return df
-
+    return df[[
+        "D1",
+        "ID",
+        "round_num",
+        "BVP_standardized",
+        "EDA_standardized",
+        "HR_standardized",
+        "TEMP_standardized"
+    ]]
 
 # -----------------------------
 # Main pipeline
