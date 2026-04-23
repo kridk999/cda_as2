@@ -14,14 +14,14 @@ df_clean = df[cols].copy()
 # Split by phase
 phase_1 = df_clean[df_clean["Phase"] == "phase1"].reset_index(drop=True)
 phase_2 = df_clean[df_clean["Phase"] == "phase2"].reset_index(drop=True)
-phase_3 = df_clean[df_clean["Phase"] == "phase3"].reset_index(drop=True)
-
-phase_1_and_3 = pd.concat([phase_1, phase_3], ignore_index=True)
 
 
-phase_1_and_3["stress_score"] = (
-    phase_1_and_3["Frustrated"]/2 +
-    phase_1_and_3["upset"]
+
+
+
+phase_1["stress_score"] = (
+    phase_1["Frustrated"]/2 +
+    phase_1["upset"]
 )
 
 phase_2["stress_score"] = (
@@ -30,7 +30,7 @@ phase_2["stress_score"] = (
 )
 
 
-stress_diff = phase_2["stress_score"] - phase_1_and_3["stress_score"]/2
+stress_diff = phase_2["stress_score"] - phase_1["stress_score"]/2
 
 
 phase_2["stressed"] = stress_diff >= 3
