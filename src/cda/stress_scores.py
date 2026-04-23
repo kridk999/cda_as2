@@ -15,6 +15,10 @@ df_clean = df[cols].copy()
 phase_1 = df_clean[df_clean["Phase"] == "phase1"].reset_index(drop=True)
 phase_2 = df_clean[df_clean["Phase"] == "phase2"].reset_index(drop=True)
 
+
+
+
+
 phase_1["stress_score"] = (
     phase_1["Frustrated"]/2 +
     phase_1["upset"]
@@ -25,10 +29,16 @@ phase_2["stress_score"] = (
     phase_2["upset"]
 )
 
-# see if phase_2 stress score is >3 hghter than phase_1 stress score
-stress_diff = phase_2["stress_score"] - phase_1["stress_score"]
+
+stress_diff = phase_2["stress_score"] - phase_1["stress_score"]/2
 
 
 phase_2["stressed"] = stress_diff >= 3
+
+
+num_stressed = phase_2["stressed"].sum()
+total = num_stressed/len(phase_2)
+
+print(f"Number of stressed individuals in phase 2: {total}")
 
 phase_2[["Individual", "stressed"]].to_csv("assets/data/phase_2_stress_labels.csv", index=False)
