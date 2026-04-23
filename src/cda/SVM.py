@@ -1,85 +1,227 @@
+import argparse
 import pandas as pd
 import numpy as np
 import os
 from dummy_dataset_generator import generate_dummy_dataframes
 from sklearn.svm import OneClassSVM
-from sklearn.preprocessing import StandardScaler
-
-BASE_DIR = os.path.join("assets", "dummy_dataset")
-NUM_COHORTS = 6       
-NUM_IDS = 3           
-NUM_ROUNDS = 4        
-NUM_PHASES = 3        
-VECTOR_LENGTH = 10    
-
-dfs = generate_dummy_dataframes()
-    
-df_phase1 = dfs["Phase_1"]
-df_phase2 = dfs["Phase_2"]
-df_phase3 = dfs["Phase_3"]
-
-# 1. Combine Phase 1 and Phase 3 to form the baseline/training set
-df_baseline = pd.concat([df_phase1, df_phase3], ignore_index=True)
-
-results = []
+import matplotlib.pyplot as plt
+from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 
 def extract_feature_matrix(df_subset):
     """
-    Takes a DataFrame subset (for a specific person) and extracts the 
-    sensor vectors into a 2D numpy array of shape (N_samples, 4_features)
+    Takes a DataFrame subset and extracts the standardized sensor columns
+    into a 2D numpy array of shape (N_samples, 4_features).
     """
-    # np.concatenate joins the lists across all rounds into a single long array
-    hr = np.concatenate(df_subset['HR_vector'].values)
-    eda = np.concatenate(df_subset['EDA_vector'].values)
-    bvp = np.concatenate(df_subset['BVP_vector'].values)
-    temp = np.concatenate(df_subset['TEMP_vector'].values)
+    # Simply select the existing standardized columns
+    feature_cols = [
+        'HR_standardized', 
+        'EDA_standardized', 
+        'BVP_standardized', 
+        'TEMP_standardized'
+    ]
     
-    # Stack columns side-by-side: shape becomes (N_samples, 4)
-    return np.column_stack((hr, eda, bvp, temp))
+    return df_subset[feature_cols].values
 
-# 2. Iterate on an individual basis (Grouping by Cohort and Person)
-for (cohort, person), baseline_group in df_baseline.groupby(['Cohort', 'Person']):
-    
-    # Extract matching Phase 2 data for testing
-    test_group = df_phase2[(df_phase2['Cohort'] == cohort) & (df_phase2['Person'] == person)]
-    
-    # Extract feature matrices
-    X_train = extract_feature_matrix(baseline_group)
-    X_test = extract_feature_matrix(test_group)
-    
-    # 3. Normalize the data
-    scaler = StandardScaler()
-    # Fit the scaler ONLY on the baseline data, then transform both
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
-    
-    # 4. Train the One-Class SVM detector
-    # 'nu' is an upper bound on the fraction of training errors (expected outliers in training set)
-    # We set it slightly above 0 to prevent harsh overfitting.
-    oc_svm = OneClassSVM(kernel='rbf', gamma='scale', nu=0.05)
-    oc_svm.fit(X_train_scaled)
-    
-    # 5. Predict on Phase 2 data
-    # Output is +1 for inliers (normal) and -1 for outliers (anomalous)
-    preds = oc_svm.predict(X_test_scaled)
-    
-    # Calculate the percentage of samples in Phase 2 flagged as outliers
-    total_samples = len(preds)
-    outlier_count = np.sum(preds == -1)
-    outlier_ratio = outlier_count / total_samples
-    
-    # We can define a threshold (e.g., > 30% anomalous samples means Phase 2 is an outlier phase)
-    is_outlier_phase = outlier_ratio > 0.30
-    
-    results.append({
-        'Cohort': cohort,
-        'Person': person,
-        'Phase2_Outlier_Ratio': outlier_ratio,
-        'Phase2_Is_Outlier': is_outlier_phase
-    })
 
-# Convert results to a DataFrame for easy viewing
-results_df = pd.DataFrame(results)
+# def extract_time_series_features(df, window_size=10):
+#     """
+#     Extracts HR, EDA, and TEMP features while incorporating time-series 
+#     aspects via rolling means and rolling standard deviations.
+#     BVP is excluded due to noise.
+#     """
+#     df_feats = df.copy()
+#     base_cols = ['HR_standardized', 'EDA_standardized', 'TEMP_standardized']
+    
+#     for col in base_cols:
+#         df_feats[f'{col}_raw'] = df_feats[col]
+        
+#         df_feats[f'{col}_mean'] = df_feats.groupby(['D1', 'ID'])[col].transform(
+#             lambda x: x.rolling(window_size, min_periods=1).mean())
+        
+#         df_feats[f'{col}_std'] = df_feats.groupby(['D1', 'ID'])[col].transform(
+#             lambda x: x.rolling(window_size, min_periods=1).std().fillna(0))
+    
+#     feature_cols = [f'{col}_raw' for col in base_cols] + \
+#                    [f'{col}_mean' for col in base_cols] + \
+#                    [f'{col}_std' for col in base_cols]           
+#     return df_feats[feature_cols].values
 
-print("--- Outlier Detection Results per Individual ---")
-print(results_df.head(10))
+
+def run_global_anomaly_detection(phase1_path, phase2_path, nu, window_size=10, plot=False, plot_tsne=False):
+    """
+    Loads Phase 1 and Phase 2 data, trains a SINGLE One-Class SVM on all Phase 1 data, 
+    and evaluates outlier ratios.
+    """
+    df_phase1 = pd.read_csv(phase1_path)
+    df_phase2 = pd.read_csv(phase2_path)
+    
+    # Train 
+    X_train_global = extract_feature_matrix(df_phase1)
+    oc_svm = OneClassSVM(kernel='rbf', gamma='scale', nu=nu)
+    oc_svm.fit(X_train_global)
+    
+    # Predict on train ( for statistics only )
+    preds_train_global = oc_svm.predict(X_train_global)
+    train_total_samples = len(preds_train_global)
+    train_outlier_count = np.sum(preds_train_global == -1)
+    train_outlier_ratio = train_outlier_count / train_total_samples if train_total_samples > 0 else 0
+
+    # Predict on test set
+    X_test_global = extract_feature_matrix(df_phase2)
+    preds_global = oc_svm.predict(X_test_global)
+    df_phase2['SVM_Prediction'] = preds_global
+
+    test_total_samples = len(preds_global)
+    test_outlier_count = np.sum(preds_global == -1)
+    test_outlier_ratio = test_outlier_count / test_total_samples if test_total_samples > 0 else 0
+    
+    global_results = {
+        'Train_Total_Samples': train_total_samples,
+        'Train_Outlier_Count': train_outlier_count,
+        'Train_Outlier_Ratio': train_outlier_ratio,
+        'Test_Total_Samples': test_total_samples,
+        'Test_Outlier_Count': test_outlier_count,
+        'Test_Outlier_Ratio': test_outlier_ratio
+    }
+
+
+    if plot:
+        pca = PCA(n_components=2)
+        X_train_2d = pca.fit_transform(X_train_global)
+        X_test_2d = pca.transform(X_test_global) if len(X_test_global) > 0 else np.empty((0,2))
+        
+        plt.figure(figsize=(10, 6), dpi=150)
+        
+        color_normal = '#4C72B0'
+        color_outlier = '#DD8452'
+        
+        plt.scatter(X_train_2d[preds_train_global == 1, 0], X_train_2d[preds_train_global == 1, 1], 
+                    c=color_normal, marker='o', s=15, edgecolors='none', label='Phase 1 - Normal', alpha=0.5)
+        plt.scatter(X_train_2d[preds_train_global == -1, 0], X_train_2d[preds_train_global == -1, 1], 
+                    c=color_outlier, marker='o', s=15, edgecolors='none', label='Phase 1 - Outlier', alpha=0.5)
+        
+        if len(X_test_global) > 0:
+            plt.scatter(X_test_2d[preds_global == 1, 0], X_test_2d[preds_global == 1, 1], 
+                        c=color_normal, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Normal', alpha=0.9)
+            plt.scatter(X_test_2d[preds_global == -1, 0], X_test_2d[preds_global == -1, 1], 
+                        c=color_outlier, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Outlier', alpha=0.9)
+
+        plt.title('Global OC-SVM Anomalies (PCA Projection)', fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel('Principal Component 1', fontsize=12)
+        plt.ylabel('Principal Component 2', fontsize=12)
+        
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_alpha(0.3)
+        ax.spines['bottom'].set_alpha(0.3)
+        
+        plt.legend(loc='best', markerscale=1.5, frameon=True, edgecolor='lightgray', borderpad=1)
+        plt.grid(True, linestyle='--', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+    if plot_tsne:
+        # Concatenate train and test sets to project them into the same t-SNE space
+        if len(X_test_global) > 0:
+            X_combined = np.vstack((X_train_global, X_test_global))
+        else:
+            X_combined = X_train_global
+            
+        # Fit t-SNE
+        tsne = TSNE(n_components=2, random_state=42)
+        X_combined_2d = tsne.fit_transform(X_combined)
+        
+        # Split back apart
+        n_train = len(X_train_global)
+        X_train_2d = X_combined_2d[:n_train]
+        X_test_2d = X_combined_2d[n_train:] if len(X_test_global) > 0 else np.empty((0,2))
+        
+        plt.figure(figsize=(10, 6), dpi=150)
+        
+        color_normal = '#4C72B0'
+        color_outlier = '#DD8452'
+        
+        plt.scatter(X_train_2d[preds_train_global == 1, 0], X_train_2d[preds_train_global == 1, 1], 
+                    c=color_normal, marker='o', s=15, edgecolors='none', label='Phase 1 - Normal', alpha=0.5)
+        plt.scatter(X_train_2d[preds_train_global == -1, 0], X_train_2d[preds_train_global == -1, 1], 
+                    c=color_outlier, marker='o', s=15, edgecolors='none', label='Phase 1 - Outlier', alpha=0.5)
+        
+        if len(X_test_global) > 0:
+            plt.scatter(X_test_2d[preds_global == 1, 0], X_test_2d[preds_global == 1, 1], 
+                        c=color_normal, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Normal', alpha=0.9)
+            plt.scatter(X_test_2d[preds_global == -1, 0], X_test_2d[preds_global == -1, 1], 
+                        c=color_outlier, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Outlier', alpha=0.9)
+
+        plt.title('Global OC-SVM Anomalies (t-SNE Projection)', fontsize=14, fontweight='bold', pad=15)
+        plt.xlabel('t-SNE Dimension 1', fontsize=12)
+        plt.ylabel('t-SNE Dimension 2', fontsize=12)
+        
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['left'].set_alpha(0.3)
+        ax.spines['bottom'].set_alpha(0.3)
+        
+        plt.legend(loc='best', markerscale=1.5, frameon=True, edgecolor='lightgray', borderpad=1)
+        plt.grid(True, linestyle='--', alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+
+    return global_results
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train and evaluate One-Class SVM for anomaly detection.")
+    parser.add_argument("--phase1", type=str, default="assets/data/phase1_processed.csv", 
+                        help="Path to the Phase 1 processed CSV data.")
+    parser.add_argument("--phase2", type=str, default="assets/data/phase2_processed.csv", 
+                        help="Path to the Phase 2 processed CSV data.")
+    parser.add_argument("--nu", type=float, default=0.10, 
+                        help="An upper bound on the fraction of training errors (nu parameter for SVM).")    
+    parser.add_argument("--plot", action="store_true", 
+                        help="Add this flag to display the time-series visualization for the first individual.") 
+    parser.add_argument("--window_size", type=int, default=3, 
+                        help="Number of timesteps for the rolling windows to capture time-series trends.")
+    parser.add_argument("--plot_tsne", action="store_true", default=False,
+                        help="Add this flag to display t-SNE visualization of the SVM results.")
+    
+    args = parser.parse_args()
+    
+    global_results = run_global_anomaly_detection(
+        phase1_path=args.phase1, 
+        phase2_path=args.phase2, 
+        nu=args.nu, 
+        window_size=args.window_size,
+        plot=args.plot,
+        plot_tsne=args.plot_tsne
+    )
+    
+    # --- INTERPRETATION STATISTICS ---
+    print("\n" + "="*50)
+    print(" GLOBAL ANOMALY DETECTION STATISTICS ".center(50, "="))
+    print("="*50)
+    
+    train_samples = global_results['Train_Total_Samples']
+    test_samples = global_results['Test_Total_Samples']
+    
+    if test_samples > 0 and train_samples > 0:
+        train_outliers = global_results['Train_Outlier_Count']
+        train_ratio = global_results['Train_Outlier_Ratio']
+        
+        test_outliers = global_results['Test_Outlier_Count']
+        test_ratio = global_results['Test_Outlier_Ratio']
+        
+        print(f"--- TRAINING DATA (Phase 1) ---")
+        print(f"Total Samples Evaluated:    {train_samples}")
+        print(f"Anomalous Samples Flagged:  {train_outliers} ({(train_ratio * 100):.2f}%)")
+        print(f"(Note: Expected ~ {args.nu * 100:.1f} % based on nu parameter)")
+        
+        print(f"\n--- TESTING DATA (Phase 2) ---")
+        print(f"Total Samples Evaluated:    {test_samples}")
+        print(f"Anomalous Samples Flagged:  {test_outliers} ({(test_ratio * 100):.2f}%)")
+    else:
+        print("Data missing to calculate complete statistics.")
+    print("=" * 50 + "\n")
+
