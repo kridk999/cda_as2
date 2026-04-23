@@ -107,22 +107,21 @@ def main():
 
     # Phase 1
     df_phase1 = build_dataframe(base_path, "phase1")
-    stats = compute_phase1_stats(df_phase1)
-    df_phase1 = apply_standardization(df_phase1, stats)
+    df_phase3 = build_dataframe(base_path, "phase3"
+                                )
+    # combine phase 1 and phase 3 for stats computation
+    df_combined = pd.concat([df_phase1, df_phase3], ignore_index=True)
+    stats = compute_phase1_stats(df_combined)
+    df_phase1_and_3 = apply_standardization(df_combined, stats)
 
     # Phase 2 
     df_phase2 = build_dataframe(base_path, "phase2")
     df_phase2 = apply_standardization(df_phase2, stats)
 
-    # Phase 3 (Added)
-    print("Processing Phase 3...")
-    df_phase3 = build_dataframe(base_path, "phase3")
-    df_phase3 = apply_standardization(df_phase3, stats)
 
     # Save results
-    df_phase1.to_csv("assets/data/phase1_processed.csv", index=False)
     df_phase2.to_csv("assets/data/phase2_processed.csv", index=False)
-    df_phase3.to_csv("assets/data/phase3_processed.csv", index=False) # Save Phase 3
+    df_phase1_and_3.to_csv("assets/data/phase1_and_3_processed.csv", index=False)
     
     print("Processing complete. Files saved.")
 
