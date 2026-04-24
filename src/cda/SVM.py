@@ -1,11 +1,8 @@
 import argparse
 import pandas as pd
 import numpy as np
-import os
-from dummy_dataset_generator import generate_dummy_dataframes
 from sklearn.svm import OneClassSVM
 import matplotlib.pyplot as plt
-from sklearn.manifold import TSNE
 from sklearn.decomposition import PCA
 
 def extract_feature_matrix(df_subset):
@@ -18,37 +15,13 @@ def extract_feature_matrix(df_subset):
         'HR_standardized', 
         'EDA_standardized', 
         'BVP_standardized', 
-        'TEMP_standardized'
+        #'TEMP_standardized'
     ]
     
     return df_subset[feature_cols].values
 
 
-# def extract_time_series_features(df, window_size=10):
-#     """
-#     Extracts HR, EDA, and TEMP features while incorporating time-series 
-#     aspects via rolling means and rolling standard deviations.
-#     BVP is excluded due to noise.
-#     """
-#     df_feats = df.copy()
-#     base_cols = ['HR_standardized', 'EDA_standardized', 'TEMP_standardized']
-    
-#     for col in base_cols:
-#         df_feats[f'{col}_raw'] = df_feats[col]
-        
-#         df_feats[f'{col}_mean'] = df_feats.groupby(['D1', 'ID'])[col].transform(
-#             lambda x: x.rolling(window_size, min_periods=1).mean())
-        
-#         df_feats[f'{col}_std'] = df_feats.groupby(['D1', 'ID'])[col].transform(
-#             lambda x: x.rolling(window_size, min_periods=1).std().fillna(0))
-    
-#     feature_cols = [f'{col}_raw' for col in base_cols] + \
-#                    [f'{col}_mean' for col in base_cols] + \
-#                    [f'{col}_std' for col in base_cols]           
-#     return df_feats[feature_cols].values
-
-
-def run_global_anomaly_detection(phase1_path, phase2_path, nu, window_size=10, plot=False, plot_tsne=False):
+def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_tsne=False):
     """
     Loads Phase 1 and Phase 2 data, trains a SINGLE One-Class SVM on all Phase 1 data, 
     and evaluates outlier ratios.
@@ -63,6 +36,8 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, window_size=10, p
     
     # Predict on train ( for statistics only )
     preds_train_global = oc_svm.predict(X_train_global)
+    df_phase1['SVM_Prediction'] = preds_train_global    # Add predictions to Phase 1 DataFrame
+    
     train_total_samples = len(preds_train_global)
     train_outlier_count = np.sum(preds_train_global == -1)
     train_outlier_ratio = train_outlier_count / train_total_samples if train_total_samples > 0 else 0
@@ -76,13 +51,37 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, window_size=10, p
     test_outlier_count = np.sum(preds_global == -1)
     test_outlier_ratio = test_outlier_count / test_total_samples if test_total_samples > 0 else 0
     
+    train_individual_stats = {}
+    if 'ID' in df_phase1.columns:
+        for person_id, group in df_phase1.groupby('ID'):
+            total = len(group)
+            outliers = np.sum(group['SVM_Prediction'] == -1)
+            train_individual_stats[person_id] = {
+                'Total_Samples': total,
+                'Outlier_Count': outliers,
+                'Outlier_Ratio': outliers / total if total > 0 else 0
+            }
+
+    test_individual_stats = {}
+    if 'ID' in df_phase2.columns:
+        for person_id, group in df_phase2.groupby('ID'):
+            total = len(group)
+            outliers = np.sum(group['SVM_Prediction'] == -1)
+            test_individual_stats[person_id] = {
+                'Total_Samples': total,
+                'Outlier_Count': outliers,
+                'Outlier_Ratio': outliers / total if total > 0 else 0
+            }
+            
     global_results = {
         'Train_Total_Samples': train_total_samples,
         'Train_Outlier_Count': train_outlier_count,
         'Train_Outlier_Ratio': train_outlier_ratio,
         'Test_Total_Samples': test_total_samples,
         'Test_Outlier_Count': test_outlier_count,
-        'Test_Outlier_Ratio': test_outlier_ratio
+        'Test_Outlier_Ratio': test_outlier_ratio,
+        'Train_Individual_Stats': train_individual_stats,
+        'Test_Individual_Stats': test_individual_stats
     }
 
 
@@ -122,59 +121,12 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, window_size=10, p
         
         plt.tight_layout()
         plt.show()
-    if plot_tsne:
-        # Concatenate train and test sets to project them into the same t-SNE space
-        if len(X_test_global) > 0:
-            X_combined = np.vstack((X_train_global, X_test_global))
-        else:
-            X_combined = X_train_global
-            
-        # Fit t-SNE
-        tsne = TSNE(n_components=2, random_state=42)
-        X_combined_2d = tsne.fit_transform(X_combined)
-        
-        # Split back apart
-        n_train = len(X_train_global)
-        X_train_2d = X_combined_2d[:n_train]
-        X_test_2d = X_combined_2d[n_train:] if len(X_test_global) > 0 else np.empty((0,2))
-        
-        plt.figure(figsize=(10, 6), dpi=150)
-        
-        color_normal = '#4C72B0'
-        color_outlier = '#DD8452'
-        
-        plt.scatter(X_train_2d[preds_train_global == 1, 0], X_train_2d[preds_train_global == 1, 1], 
-                    c=color_normal, marker='o', s=15, edgecolors='none', label='Phase 1 - Normal', alpha=0.5)
-        plt.scatter(X_train_2d[preds_train_global == -1, 0], X_train_2d[preds_train_global == -1, 1], 
-                    c=color_outlier, marker='o', s=15, edgecolors='none', label='Phase 1 - Outlier', alpha=0.5)
-        
-        if len(X_test_global) > 0:
-            plt.scatter(X_test_2d[preds_global == 1, 0], X_test_2d[preds_global == 1, 1], 
-                        c=color_normal, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Normal', alpha=0.9)
-            plt.scatter(X_test_2d[preds_global == -1, 0], X_test_2d[preds_global == -1, 1], 
-                        c=color_outlier, marker='D', s=45, edgecolors='white', linewidth=1, label='Phase 2 - Outlier', alpha=0.9)
-
-        plt.title('Global OC-SVM Anomalies (t-SNE Projection)', fontsize=14, fontweight='bold', pad=15)
-        plt.xlabel('t-SNE Dimension 1', fontsize=12)
-        plt.ylabel('t-SNE Dimension 2', fontsize=12)
-        
-        ax = plt.gca()
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_alpha(0.3)
-        ax.spines['bottom'].set_alpha(0.3)
-        
-        plt.legend(loc='best', markerscale=1.5, frameon=True, edgecolor='lightgray', borderpad=1)
-        plt.grid(True, linestyle='--', alpha=0.3)
-        
-        plt.tight_layout()
-        plt.show()
 
     return global_results
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train and evaluate One-Class SVM for anomaly detection.")
-    parser.add_argument("--phase1", type=str, default="assets/data/phase1_processed.csv", 
+    parser.add_argument("--phase1", type=str, default="assets/data/phase1_and_3_processed.csv", 
                         help="Path to the Phase 1 processed CSV data.")
     parser.add_argument("--phase2", type=str, default="assets/data/phase2_processed.csv", 
                         help="Path to the Phase 2 processed CSV data.")
@@ -182,18 +134,16 @@ if __name__ == "__main__":
                         help="An upper bound on the fraction of training errors (nu parameter for SVM).")    
     parser.add_argument("--plot", action="store_true", 
                         help="Add this flag to display the time-series visualization for the first individual.") 
-    parser.add_argument("--window_size", type=int, default=3, 
-                        help="Number of timesteps for the rolling windows to capture time-series trends.")
     parser.add_argument("--plot_tsne", action="store_true", default=False,
                         help="Add this flag to display t-SNE visualization of the SVM results.")
-    
+    parser.add_argument("--save_as_csv", action="store_true", default=False,
+                        help="Add this flag to save the global anomaly detection results as a CSV file.")
     args = parser.parse_args()
     
     global_results = run_global_anomaly_detection(
         phase1_path=args.phase1, 
         phase2_path=args.phase2, 
         nu=args.nu, 
-        window_size=args.window_size,
         plot=args.plot,
         plot_tsne=args.plot_tsne
     )
@@ -221,7 +171,46 @@ if __name__ == "__main__":
         print(f"\n--- TESTING DATA (Phase 2) ---")
         print(f"Total Samples Evaluated:    {test_samples}")
         print(f"Anomalous Samples Flagged:  {test_outliers} ({(test_ratio * 100):.2f}%)")
+        
+        print("\n--- PHASE 2 INDIVIDUAL STATISTICS ---")
+        test_ind_stats = global_results.get('Test_Individual_Stats', {})
+        for person_id, stats in test_ind_stats.items():
+            print(f"{person_id: <8} | Samples: {stats['Total_Samples']: <4} | Outliers: {stats['Outlier_Count']: <4} | Ratio: {stats['Outlier_Ratio']*100:.2f}%")
     else:
         print("Data missing to calculate complete statistics.")
     print("=" * 50 + "\n")
 
+    if args.save_as_csv:
+        # Build a list of rows to save to CSV including both global and individual stats
+        csv_rows = []
+        
+        # Add Global rows
+        csv_rows.append({
+            'Phase': 'Train', 'ID': 'Global', 
+            'Total_Samples': train_samples, 'Outlier_Count': train_outliers, 'Outlier_Ratio': train_ratio
+        })
+        csv_rows.append({
+            'Phase': 'Test', 'ID': 'Global', 
+            'Total_Samples': test_samples, 'Outlier_Count': test_outliers, 'Outlier_Ratio': test_ratio
+        })
+        
+        # Add Individual Train rows
+        train_ind_stats = global_results.get('Train_Individual_Stats', {})
+        for pid, stats in train_ind_stats.items():
+            csv_rows.append({
+                'Phase': 'Train', 'ID': pid, 
+                'Total_Samples': stats['Total_Samples'], 'Outlier_Count': stats['Outlier_Count'], 'Outlier_Ratio': stats['Outlier_Ratio']
+            })
+            
+        # Add Individual Test rows
+        test_ind_stats = global_results.get('Test_Individual_Stats', {})
+        for pid, stats in test_ind_stats.items():
+            csv_rows.append({
+                'Phase': 'Test', 'ID': pid, 
+                'Total_Samples': stats['Total_Samples'], 'Outlier_Count': stats['Outlier_Count'], 'Outlier_Ratio': stats['Outlier_Ratio']
+            })
+            
+        # Save the results to a CSV file
+        results_df = pd.DataFrame(csv_rows)
+        results_df.to_csv('svm_global_anomaly_detection_results.csv', index=False)
+        print("Results saved to svm_global_anomaly_detection_results.csv")
