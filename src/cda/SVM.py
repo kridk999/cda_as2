@@ -7,16 +7,14 @@ from sklearn.decomposition import PCA
 
 def extract_feature_matrix(df_subset):
     """
-    Takes a DataFrame subset and extracts the standardized sensor columns
-    into a 2D numpy array of shape (N_samples, 4_features).
+    Takes a DataFrame subset and extracts the feature columns
+    by ignoring metadata columns like Individual, Round, and Phase.
     """
-    # Simply select the existing standardized columns
-    feature_cols = [
-        'HR_standardized', 
-        'EDA_standardized', 
-        'BVP_standardized', 
-        #'TEMP_standardized'
-    ]
+    # Columns that shouldn't be fed to the SVM
+    exclude_cols = ['Individual', 'Round', 'Phase', 'ID'] 
+    
+    # Keep only the feature columns
+    feature_cols = [col for col in df_subset.columns if col not in exclude_cols]
     
     return df_subset[feature_cols].values
 
@@ -52,8 +50,10 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_
     test_outlier_ratio = test_outlier_count / test_total_samples if test_total_samples > 0 else 0
     
     train_individual_stats = {}
-    if 'ID' in df_phase1.columns:
-        for person_id, group in df_phase1.groupby('ID'):
+    id_col = 'Individual' if 'Individual' in df_phase1.columns else 'ID' # Fallback for old datasets
+    
+    if id_col in df_phase1.columns:
+        for person_id, group in df_phase1.groupby(id_col):
             total = len(group)
             outliers = np.sum(group['SVM_Prediction'] == -1)
             train_individual_stats[person_id] = {
@@ -63,8 +63,8 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_
             }
 
     test_individual_stats = {}
-    if 'ID' in df_phase2.columns:
-        for person_id, group in df_phase2.groupby('ID'):
+    if id_col in df_phase2.columns:
+        for person_id, group in df_phase2.groupby(id_col):
             total = len(group)
             outliers = np.sum(group['SVM_Prediction'] == -1)
             test_individual_stats[person_id] = {
@@ -212,5 +212,5 @@ if __name__ == "__main__":
             
         # Save the results to a CSV file
         results_df = pd.DataFrame(csv_rows)
-        results_df.to_csv('svm_global_anomaly_detection_results.csv', index=False)
-        print("Results saved to svm_global_anomaly_detection_results.csv")
+        results_df.to_csv('svm_results.csv', index=False)
+        print("Results saved to svm_results.csv")
