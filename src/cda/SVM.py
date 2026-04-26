@@ -29,11 +29,23 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_
     
     # Train 
     X_train_global = extract_feature_matrix(df_phase1)
-    oc_svm = OneClassSVM(kernel='rbf', gamma='scale', nu=nu)
-    oc_svm.fit(X_train_global)
+    
+    pca = PCA(n_components=0.95, whiten=True, random_state=42)
+    X_train_pca = pca.fit_transform(X_train_global)
+    
+    feature_names = [col for col in df_phase1.columns if col not in ['Individual', 'Round', 'Phase', 'ID']]
+    # We take the absolute value of the weights in the first principal component
+    pc1_loadings = np.abs(pca.components_[0])
+    important_features = sorted(zip(feature_names, pc1_loadings), key=lambda x: x[1], reverse=True)
+    print("Top 5 features contributing to PC1:")
+    for feature, weight in important_features[:5]:
+        print(f"- {feature}: {weight:.4f}")
+    
+    oc_svm = OneClassSVM(kernel='rbf',gamma=0.01, nu=nu)
+    oc_svm.fit(X_train_pca)
     
     # Predict on train ( for statistics only )
-    preds_train_global = oc_svm.predict(X_train_global)
+    preds_train_global = oc_svm.predict(X_train_pca)
     df_phase1['SVM_Prediction'] = preds_train_global    # Add predictions to Phase 1 DataFrame
     
     train_total_samples = len(preds_train_global)
@@ -42,7 +54,8 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_
 
     # Predict on test set
     X_test_global = extract_feature_matrix(df_phase2)
-    preds_global = oc_svm.predict(X_test_global)
+    X_test_pca = pca.transform(X_test_global)
+    preds_global = oc_svm.predict(X_test_pca)
     df_phase2['SVM_Prediction'] = preds_global
 
     test_total_samples = len(preds_global)
@@ -86,9 +99,9 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, plot_
 
 
     if plot:
-        pca = PCA(n_components=2)
-        X_train_2d = pca.fit_transform(X_train_global)
-        X_test_2d = pca.transform(X_test_global) if len(X_test_global) > 0 else np.empty((0,2))
+        pca_plot = PCA(n_components=2)
+        X_train_2d = pca_plot.fit_transform(X_train_pca)
+        X_test_2d = pca_plot.transform(X_test_pca) if len(X_test_pca) > 0 else np.empty((0,2))
         
         plt.figure(figsize=(10, 6), dpi=150)
         
@@ -148,7 +161,6 @@ if __name__ == "__main__":
         plot_tsne=args.plot_tsne
     )
     
-    # --- INTERPRETATION STATISTICS ---
     print("\n" + "="*50)
     print(" GLOBAL ANOMALY DETECTION STATISTICS ".center(50, "="))
     print("="*50)
@@ -176,12 +188,8 @@ if __name__ == "__main__":
         test_ind_stats = global_results.get('Test_Individual_Stats', {})
         for person_id, stats in test_ind_stats.items():
             print(f"{person_id: <8} | Samples: {stats['Total_Samples']: <4} | Outliers: {stats['Outlier_Count']: <4} | Ratio: {stats['Outlier_Ratio']*100:.2f}%")
-    else:
-        print("Data missing to calculate complete statistics.")
-    print("=" * 50 + "\n")
 
     if args.save_as_csv:
-        # Build a list of rows to save to CSV including both global and individual stats
         csv_rows = []
         
         # Add Global rows
