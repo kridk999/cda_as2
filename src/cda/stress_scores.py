@@ -42,3 +42,14 @@ total = num_stressed/len(phase_2)
 print(f"Number of stressed individuals in phase 2: {total}")
 
 phase_2[["Individual", "stressed"]].to_csv("assets/data/phase_2_stress_labels.csv", index=False)
+
+# SVM labels
+svm_labels = pd.read_csv("assets/data/SVM_labels.csv", header=0)
+
+# Confusion matrix
+from sklearn.metrics import confusion_matrix
+y_true = phase_2["stressed"].astype(int)
+y_pred = svm_labels["stressed"].astype(int)
+cm = confusion_matrix(y_true, y_pred)
+print("Confusion Matrix:")
+print(cm)
