@@ -39,6 +39,8 @@ feature_cols = [
 
 df_clean = df[cols].copy()
 
+df_clean = df_clean.dropna(subset=feature_cols)
+
 df_phase1 = df_clean[df_clean["Phase"] == "phase1"].reset_index(drop=True)
 df_phase2 = df_clean[df_clean["Phase"] == "phase2"].reset_index(drop=True)
 
