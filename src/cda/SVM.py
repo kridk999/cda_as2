@@ -10,16 +10,12 @@ def extract_feature_matrix(df_subset):
     Takes a DataFrame subset and extracts the feature columns
     by ignoring metadata columns like Individual, Round, and Phase.
     """
-    # Columns that shouldn't be fed to the SVM
     exclude_cols = ['Individual', 'Round', 'Phase', 'ID'] 
-    
-    # Keep only the feature columns
     feature_cols = [col for col in df_subset.columns if col not in exclude_cols]
-    
     return df_subset[feature_cols].values
 
 
-def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False):
+def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False, pca_plot=False):
     """
     Loads Phase 1 and Phase 2 data, trains a One-Class SVM on all Phase 1 data, 
     and evaluates outliers.
@@ -27,47 +23,44 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False):
     df_phase1 = pd.read_csv(phase1_path)
     df_phase2 = pd.read_csv(phase2_path)
     
-    
     X_train_global = extract_feature_matrix(df_phase1)
     
     pca = PCA(n_components=0.9, whiten=True, random_state=42)
     X_train_pca = pca.fit_transform(X_train_global)
     feature_names = [col for col in df_phase1.columns if col not in ['Individual', 'Round', 'Phase', 'ID']]
-  
+    
+    #print top 20 features contributing to the first 2 principal components
+    # for i in range(2):
+    #     component = pca.components_[i]
+    #     top_indices = np.argsort(np.abs(component))[::-1][:20]
+    #     top_features = [feature_names[idx] for idx in top_indices]
+    #     print(f"Top features for Principal Component {i+1}: {', '.join(top_features)}")
+    
     print(len(feature_names), "features reduced to", X_train_pca.shape[1], "principal components.")
     
     oc_svm = OneClassSVM(kernel='rbf',gamma=0.01, nu=nu)
     oc_svm.fit(X_train_pca)
   
+    # Only for statistics and visualization, not for training the model
     preds_train_global = oc_svm.predict(X_train_pca)
     df_phase1['SVM_Prediction'] = preds_train_global    
-    train_total_samples = len(preds_train_global)
-    train_outlier_count = np.sum(preds_train_global == -1)
-    train_outlier_ratio = train_outlier_count / train_total_samples if train_total_samples > 0 else 0
+
 
     X_test_global = extract_feature_matrix(df_phase2)
     X_test_pca = pca.transform(X_test_global)
     preds_global = oc_svm.predict(X_test_pca)
     df_phase2['SVM_Prediction'] = preds_global
-
-    test_total_samples = len(preds_global)
-    test_outlier_count = np.sum(preds_global == -1)
-    test_outlier_ratio = test_outlier_count / test_total_samples if test_total_samples > 0 else 0
     
-    # --- REWRITTEN global_results BLOCK ---
     id_col1 = 'Individual' if 'Individual' in df_phase1.columns else 'ID'
     id_col2 = 'Individual' if 'Individual' in df_phase2.columns else 'ID'
     
-    # Extract the required columns for each phase
     res1 = df_phase1[[id_col1, 'Phase', 'SVM_Prediction']].copy()
     res1.rename(columns={id_col1: 'Individual'}, inplace=True)
     
     res2 = df_phase2[[id_col2, 'Phase', 'SVM_Prediction']].copy()
     res2.rename(columns={id_col2: 'Individual'}, inplace=True)
     
-    # Combine them into a single structure (DataFrame)
     global_results = pd.concat([res1, res2], ignore_index=True)
-    # ----------------------------------------
 
     if plot:
         pca_plot = PCA(n_components=2)
@@ -105,6 +98,45 @@ def run_global_anomaly_detection(phase1_path, phase2_path, nu, plot=False):
         
         plt.tight_layout()
         plt.show()
+        
+    if pca_plot:
+        plt.figure(figsize=(10, 6), dpi=150)
+        
+        # Use the original pca object which was fitted on all features
+        explained_variance = pca.explained_variance_ratio_
+        cumulative_variance = np.cumsum(explained_variance)
+        
+        # Bar chart for individual explained variance
+        bars = plt.bar(range(1, len(explained_variance) + 1), explained_variance, alpha=0.6, align='center',
+                       label='Individual explained variance', color='#4C72B0')
+        
+        # Add percentage labels to each bar
+        for bar in bars:
+            height = bar.get_height()
+            # Adding a small offset (0.01) so the text sits slightly above the bar
+            plt.text(bar.get_x() + bar.get_width() / 2, height + 0.01, 
+                     f'{height * 100:.1f}%', ha='center', va='bottom', fontsize=8)
+        
+        # Curve plot for cumulative explained variance (changed from step plot)
+        plt.plot(range(1, len(cumulative_variance) + 1), cumulative_variance, marker='o', linestyle='-',
+                 label='Cumulative explained variance', color='#DD8452')
+        
+        plt.ylabel('Explained Variance Ratio', fontsize=12)
+        plt.xlabel('Principal Component Index', fontsize=12)
+        plt.title('PCA Explained Variance', fontsize=14, fontweight='bold', pad=15)
+        
+        ax = plt.gca()
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        
+        # Expanding the Y limit slightly so the top percentages don't get cut off
+        plt.ylim(0, max(cumulative_variance) + 0.1)
+        
+        plt.legend(loc='best', frameon=True, edgecolor='lightgray', borderpad=1)
+        plt.grid(True, linestyle='--', alpha=0.3, axis='y')
+        
+        plt.tight_layout()
+        plt.show()
 
     return global_results
 
@@ -120,13 +152,16 @@ if __name__ == "__main__":
                         help="Add this flag to display the time-series visualization for the first individual.") 
     parser.add_argument("--save_as_csv", action="store_true", default=False,
                         help="Add this flag to save the global anomaly detection results as a CSV file.")
+    parser.add_argument("--pca_plot", action="store_true", default=False,
+                        help="Add this flag to display the PCA explained variance plot.")
     args = parser.parse_args()
     
     global_results = run_global_anomaly_detection(
         phase1_path=args.phase1, 
         phase2_path=args.phase2, 
         nu=args.nu, 
-        plot=args.plot
+        plot=args.plot,
+        pca_plot=args.pca_plot
     )
     
     print("\n" + "="*50)
@@ -136,6 +171,5 @@ if __name__ == "__main__":
     print(global_results.value_counts(subset=['Phase', 'SVM_Prediction']).to_frame(name='Count').reset_index())
 
     if args.save_as_csv:
-        # Save the DataFrame directly to a CSV file
         global_results.to_csv('svm_results.csv', index=False)
         print("Results saved to svm_results.csv")
