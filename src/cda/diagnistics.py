@@ -23,15 +23,12 @@ import matplotlib.gridspec as gridspec
 from sklearn.svm import OneClassSVM
 from sklearn.decomposition import PCA
 
-# ── DTU colours ────────────────────────────────────────────────────────────────
 DTU_RED    = "#990000"
 DTU_ORANGE = "#FC7634"
 DTU_GREEN  = "#008835"
 DTU_BLUE   = "#2F3EEA"
 DTU_GRAY   = "#999999"
 
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def load_features(path):
     """Load CSV and drop metadata columns, return numpy array."""
@@ -40,7 +37,6 @@ def load_features(path):
     feature_cols = [c for c in df.columns if c not in exclude]
     return df[feature_cols].values, feature_cols
 
-
 def fit_pca(X_train, variance_threshold=0.90):
     """Fit PCA on Phase 1, return fitted PCA and transformed data."""
     pca = PCA(n_components=variance_threshold, whiten=True, random_state=42)
@@ -48,11 +44,8 @@ def fit_pca(X_train, variance_threshold=0.90):
     return pca, X_train_pca
 
 
-# ── Check 1: PCA explained variance ───────────────────────────────────────────
-
-def check_pca_variance(X_train, feature_cols, ax_cum, ax_bar):
+def pca_variance(X_train, feature_cols, ax_cum, ax_bar):
     """Plot cumulative and individual explained variance."""
-    # Fit full PCA to see all components
     pca_full = PCA(random_state=42)
     pca_full.fit(X_train)
 
@@ -60,49 +53,41 @@ def check_pca_variance(X_train, feature_cols, ax_cum, ax_bar):
     n_components_90 = np.searchsorted(cumvar, 0.90) + 1
     n_components_80 = np.searchsorted(cumvar, 0.80) + 1
 
-    # Cumulative variance plot
     ax_cum.plot(range(1, len(cumvar) + 1), cumvar,
                 color=DTU_ORANGE, marker='o', markersize=4, linewidth=1.5)
     ax_cum.axhline(0.90, color=DTU_RED,   linestyle='--', linewidth=1,
-                   label=f'90% → {n_components_90} components')
+                   label=f'90% : {n_components_90} components')
     ax_cum.axhline(0.80, color=DTU_GREEN, linestyle='--', linewidth=1,
-                   label=f'80% → {n_components_80} components')
+                   label=f'80% : {n_components_80} components')
     ax_cum.set_xlabel('Number of components')
     ax_cum.set_ylabel('Cumulative explained variance')
-    ax_cum.set_title('CHECK 1a — PCA Cumulative Variance', fontweight='bold')
+    ax_cum.set_title('PCA Cumulative Variance')
     ax_cum.legend(fontsize=9)
     ax_cum.set_xlim(1, min(30, len(cumvar)))
     ax_cum.grid(True, alpha=0.3)
-
-    # Individual variance bar chart (first 20)
     n_show = min(20, len(pca_full.explained_variance_ratio_))
     ax_bar.bar(range(1, n_show + 1),
                pca_full.explained_variance_ratio_[:n_show],
                color=DTU_BLUE, alpha=0.7)
     ax_bar.set_xlabel('Component index')
     ax_bar.set_ylabel('Individual explained variance')
-    ax_bar.set_title('CHECK 1b — Individual Component Variance', fontweight='bold')
+    ax_bar.set_title('Individual Component Variance')
     ax_bar.grid(True, alpha=0.3, axis='y')
 
-    print("\n" + "="*55)
-    print(" CHECK 1: PCA VARIANCE ".center(55, "="))
-    print("="*55)
-    print(f"  Total features:          {X_train.shape[1]}")
-    print(f"  Training observations:   {X_train.shape[0]}")
-    print(f"  Components for 80% var:  {n_components_80}")
-    print(f"  Components for 90% var:  {n_components_90}")
-    print(f"  Obs / component (90%):   {X_train.shape[0] / n_components_90:.1f}  "
+    print("Check 1: PCA Variance")
+    print(f"Total features: {X_train.shape[1]}")
+    print(f"Training observations: {X_train.shape[0]}")
+    print(f"Components for 80% var: {n_components_80}")
+    print(f"Components for 90% var: {n_components_90}")
+    print(f"Obs / component (90%): {X_train.shape[0] / n_components_90:.1f} "
           f"(want > 5, ideally > 10)")
     if X_train.shape[0] / n_components_90 < 5:
-        print("  ⚠ WARNING: Very sparse — boundary will be unreliable")
+        print("Warning: Very sparse, boundary will be unreliable")
     print()
 
     return n_components_90
 
-
-# ── Check 2: Nu sweep ──────────────────────────────────────────────────────────
-
-def check_nu_sweep(X_train_pca, X_test_pca, self_report_rate, ax):
+def nu_sweep(X_train_pca, X_test_pca, self_report_rate, ax):
     """Sweep nu and plot Phase 1 vs Phase 2 outlier rates."""
     nu_values = [0.01, 0.05, 0.10, 0.15, 0.20, 0.30, 0.40, 0.50]
     p1_rates, p2_rates = [], []
@@ -119,24 +104,18 @@ def check_nu_sweep(X_train_pca, X_test_pca, self_report_rate, ax):
                label=f'Self-report stress rate ({self_report_rate:.0%})')
     ax.set_xlabel('nu')
     ax.set_ylabel('Outlier rate')
-    ax.set_title('CHECK 2 — Nu Parameter Sweep', fontweight='bold')
+    ax.set_title('Nu Parameter Sweep')
     ax.legend(fontsize=9)
     ax.set_ylim(0, 1.05)
     ax.grid(True, alpha=0.3)
 
-    print("="*55)
-    print(" CHECK 2: NU SWEEP ".center(55, "="))
-    print("="*55)
-    print(f"  {'nu':>6}  {'Phase1':>8}  {'Phase2':>8}  {'Gap':>8}")
-    print(f"  {'-'*6}  {'-'*8}  {'-'*8}  {'-'*8}")
+    print("Check 2: Nu Sweep")
+    print(f"{'nu':>6}  {'Phase1':>8}  {'Phase2':>8}  {'Gap':>8}")
     for nu, r1, r2 in zip(nu_values, p1_rates, p2_rates):
-        print(f"  {nu:>6.2f}  {r1:>8.2%}  {r2:>8.2%}  {r2-r1:>+8.2%}")
+        print(f"{nu:>6.2f}  {r1:>8.2%}  {r2:>8.2%}  {r2-r1:>+8.2%}")
     print()
 
-
-# ── Check 3: Gamma sweep ───────────────────────────────────────────────────────
-
-def check_gamma_sweep(X_train_pca, X_test_pca, nu, ax):
+def gamma_sweep(X_train_pca, X_test_pca, nu, ax):
     """Sweep gamma values and plot Phase 2 outlier rate."""
     gamma_labels = ['0.001', '0.01', '0.05', '0.1', 'scale', 'auto']
     gamma_values = [0.001,   0.01,   0.05,   0.1,   'scale', 'auto']
@@ -150,7 +129,7 @@ def check_gamma_sweep(X_train_pca, X_test_pca, nu, ax):
     bars = ax.bar(gamma_labels, p2_rates, color=DTU_ORANGE, alpha=0.8)
     ax.set_xlabel('gamma')
     ax.set_ylabel('Phase 2 outlier rate')
-    ax.set_title(f'CHECK 3 — Gamma Sweep (nu={nu})', fontweight='bold')
+    ax.set_title(f'Gamma Sweep (nu={nu})')
     ax.set_ylim(0, 1.05)
     ax.grid(True, alpha=0.3, axis='y')
 
@@ -158,28 +137,21 @@ def check_gamma_sweep(X_train_pca, X_test_pca, nu, ax):
         ax.text(bar.get_x() + bar.get_width() / 2, rate + 0.02,
                 f'{rate:.0%}', ha='center', va='bottom', fontsize=9)
 
-    print("="*55)
-    print(" CHECK 3: GAMMA SWEEP ".center(55, "="))
-    print("="*55)
+    print("Check 3: Gamma Sweep")
     for label, rate in zip(gamma_labels, p2_rates):
-        print(f"  gamma={label:<8}  Phase 2 outlier rate: {rate:.2%}")
+        print(f"gamma={label:<8} Phase 2 outlier rate: {rate:.2%}")
     if max(p2_rates) - min(p2_rates) < 0.10:
-        print("  ⚠ Outlier rate barely changes with gamma → "
-              "problem is not kernel width")
+        print("Warning: Outlier rate barely changes with gamma, problem is not kernel width")
     print()
 
-
-# ── Check 4: Shuffle test ──────────────────────────────────────────────────────
-
-def check_shuffle_test(X_train_pca, X_test_pca, nu, n_repeats, ax):
+def shuffle_test(X_train_pca, X_test_pca, nu, n_repeats, ax):
     """
     Randomly shuffle phase labels n_repeats times and record outlier rates.
-    If shuffled rate ≈ real rate, result is artefact not signal.
+    If shuffled rate is roughly equal to real rate, result is artefact not signal.
     """
     all_data = np.vstack([X_train_pca, X_test_pca])
     n_train  = len(X_train_pca)
 
-    # Real result
     svm_real = OneClassSVM(kernel='rbf', gamma='scale', nu=nu)
     svm_real.fit(X_train_pca)
     real_rate = np.mean(svm_real.predict(X_test_pca) == -1)
@@ -205,30 +177,21 @@ def check_shuffle_test(X_train_pca, X_test_pca, nu, n_repeats, ax):
                linestyle='--', label=f'Shuffle mean={mean_shuffled:.2%}')
     ax.set_xlabel('Phase 2 outlier rate')
     ax.set_ylabel('Frequency')
-    ax.set_title('CHECK 4 — Shuffle Test', fontweight='bold')
+    ax.set_title('Shuffle Test')
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
-    # z-score of real rate vs shuffle distribution
     z = (real_rate - mean_shuffled) / (std_shuffled + 1e-9)
-
-    print("="*55)
-    print(" CHECK 4: SHUFFLE TEST ".center(55, "="))
-    print("="*55)
-    print(f"  Real Phase 2 outlier rate:    {real_rate:.2%}")
-    print(f"  Shuffle mean outlier rate:    {mean_shuffled:.2%}")
-    print(f"  Shuffle std:                  {std_shuffled:.2%}")
-    print(f"  Z-score (real vs shuffle):    {z:.2f}")
+    print("Check 4: Shuffle Test")
+    print(f"Real Phase 2 outlier rate: {real_rate:.2%}")
+    print(f"Shuffle mean outlier rate: {mean_shuffled:.2%}")
+    print(f"Shuffle std: {std_shuffled:.2%}")
+    print(f"Z-score (real vs shuffle): {z:.2f}")
     if abs(z) < 2:
-        print("  ⚠ Real rate is within 2 std of shuffle → "
-              "result is likely artefact, not genuine signal")
+        print("Warning: Real rate is within 2 std of shuffle, result is likely artefact, not genuine signal")
     else:
-        print(f"  ✓ Real rate is {z:.1f} std from shuffle → "
-              "suggests genuine signal beyond noise")
+        print(f"Success: Real rate is {z:.1f} std from shuffle, suggests genuine signal beyond noise")
     print()
-
-
-# ── Main ───────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(description="SVM diagnostic checks.")
@@ -246,7 +209,6 @@ def main():
                         help="PCA variance threshold.")
     args = parser.parse_args()
 
-    # Load data
     X_train, feature_cols = load_features(args.phase1)
     X_test,  _            = load_features(args.phase2)
 
@@ -254,13 +216,11 @@ def main():
     pca, X_train_pca = fit_pca(X_train, args.variance_threshold)
     X_test_pca = pca.transform(X_test)
 
-    print(f"\n  PCA: {X_train.shape[1]} features → "
+    print(f"\nPCA: {X_train.shape[1]} features -> "
           f"{X_train_pca.shape[1]} components ({args.variance_threshold:.0%} variance)")
 
-    # Build figure: 2 rows × 3 cols
     fig = plt.figure(figsize=(16, 10))
-    fig.suptitle("One-Class SVM Diagnostic Checks", fontsize=15,
-                 fontweight='bold', y=1.01)
+    fig.suptitle("One-Class SVM Diagnostic Checks", fontsize=15, y=1.01)
     gs = gridspec.GridSpec(2, 3, figure=fig, hspace=0.45, wspace=0.35)
 
     ax1a = fig.add_subplot(gs[0, 0])  # PCA cumulative
@@ -273,7 +233,7 @@ def main():
     check_pca_variance(X_train, feature_cols, ax1a, ax1b)
     check_nu_sweep(X_train_pca, X_test_pca, args.self_report_rate, ax2)
     check_gamma_sweep(X_train_pca, X_test_pca, args.nu, ax3)
-    check_shuffle_test(X_train_pca, X_test_pca, args.nu,
+    shuffle_test(X_train_pca, X_test_pca, args.nu,
                        args.shuffle_repeats, ax4)
 
     plt.tight_layout()
