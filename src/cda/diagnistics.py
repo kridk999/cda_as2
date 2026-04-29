@@ -230,9 +230,9 @@ def main():
     ax4  = fig.add_subplot(gs[1, 1:]) # Shuffle test (wide)
 
     # Run checks
-    check_pca_variance(X_train, feature_cols, ax1a, ax1b)
-    check_nu_sweep(X_train_pca, X_test_pca, args.self_report_rate, ax2)
-    check_gamma_sweep(X_train_pca, X_test_pca, args.nu, ax3)
+    pca_variance(X_train, feature_cols, ax1a, ax1b)
+    nu_sweep(X_train_pca, X_test_pca, args.self_report_rate, ax2)
+    gamma_sweep(X_train_pca, X_test_pca, args.nu, ax3)
     shuffle_test(X_train_pca, X_test_pca, args.nu,
                        args.shuffle_repeats, ax4)
 

@@ -115,8 +115,7 @@ if __name__ == "__main__":
         phase2_path=args.phase2, 
         nu=args.nu, 
         plot=args.plot,
-        pca_plot=args.pca_plot
-    )
+        pca_plot=args.pca_plot)
     
     print(global_results.value_counts(subset=['Phase', 'SVM_Prediction']).to_frame(name='Count').reset_index())
 
